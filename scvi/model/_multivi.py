@@ -54,6 +54,16 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         The number of gene expression features (genes).
     n_regions
         The number of accessibility features (genomic regions).
+    modality_weights
+        One of
+        * ``'equal'`` - equal weights, mixed representation is the mean of representations
+        * ``'cell'`` - cell-specific trainable weights
+        * ``'universal'`` - trainable weights, shared across all cells.
+    modality_penalty
+        One of
+        * ``'jeffrys'`` - Jeffry's divergence
+        * ``'MMD'`` - Maximum Mean Discrepancy
+        * ``'None'`` - No penalty
     n_hidden
         Number of nodes per hidden layer. If `None`, defaults to square root
         of number of regions.
@@ -110,6 +120,8 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         adata: AnnData,
         n_genes: int,
         n_regions: int,
+        modality_weights: Literal["equal", "cell", "universal"] = "equal",
+        modality_penalty: Literal["Jeffreys", "MMD", "None"] = "Jeffreys",
         n_hidden: Optional[int] = None,
         n_latent: Optional[int] = None,
         n_layers_encoder: int = 2,
@@ -140,9 +152,12 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         )
 
         self.module = MULTIVAE(
+            n_obs=adata.n_obs,
             n_input_genes=n_genes,
             n_input_regions=n_regions,
             n_batch=self.summary_stats.n_batch,
+            modality_weights=modality_weights,
+            modality_penalty=modality_penalty,
             n_hidden=n_hidden,
             n_latent=n_latent,
             n_layers_encoder=n_layers_encoder,
@@ -806,10 +821,7 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         adata = self._validate_anndata(adata)
 
         col_names = adata.var_names[: self.n_genes]
-        model_fn = partial(
-            self.get_normalized_expression,
-            batch_size=batch_size,
-        )
+        model_fn = partial(self.get_normalized_expression, batch_size=batch_size,)
         all_stats_fn = partial(
             scrna_raw_counts_properties,
             var_idx=np.arange(adata.shape[1])[: self.n_genes],
@@ -861,6 +873,7 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         %(param_cont_cov_keys)s
         """
         setup_method_args = cls._get_setup_method_args(**locals())
+        adata.obs["_indices"] = np.arange(adata.n_obs)
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
             CategoricalObsField(REGISTRY_KEYS.BATCH_KEY, batch_key),
@@ -873,6 +886,7 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             NumericalJointObsField(
                 REGISTRY_KEYS.CONT_COVS_KEY, continuous_covariate_keys
             ),
+            NumericalObsField(REGISTRY_KEYS.INDICES_KEY, "_indices"),
         ]
         adata_manager = AnnDataManager(
             fields=anndata_fields, setup_method_args=setup_method_args
