@@ -573,7 +573,7 @@ class MULTIVAE(BaseModuleClass):
         Xs = torch.stack(Xs, dim=1)
 
         # (batch_size) -> (batch_size x modalities)
-        masks = torch.stack(masks, dim=1)
+        masks = torch.stack(masks, dim=1).float()
 
         # setting 0s to -inf ensures they'll be 0 after the softmax
         masks[masks == 0] = -float("inf")
