@@ -134,7 +134,6 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         latent_distribution: Literal["normal", "ln"] = "normal",
         deeply_inject_covariates: bool = False,
         encode_covariates: bool = False,
-        fully_paired: bool = False,
         **model_kwargs,
     ):
         super().__init__(adata)
@@ -192,7 +191,6 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             deeply_inject_covariates,
             gene_likelihood,
         )
-        self.fully_paired = fully_paired
         self.n_latent = n_latent
         self.init_params_ = self._get_init_params(locals())
         self.n_genes = n_genes
@@ -389,20 +387,16 @@ class MULTIVI(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         if not self.is_trained_:
             raise RuntimeError("Please train the model first.")
 
-        keys = {"z": "z", "qz_m": "qz_m", "qz_v": "qz_v"}
-        if self.fully_paired and modality != "joint":
+        if modality == "joint":
+            keys = {"z": "z", "qz_m": "qz_m", "qz_v": "qz_v"}
+        elif modality == "expression":
+            keys = {"z": "z_expr", "qz_m": "qzm_expr", "qz_v": "qzv_expr"}
+        elif modality == "accessibility":
+            keys = {"z": "z_acc", "qz_m": "qzm_acc", "qz_v": "qzv_acc"}
+        else:
             raise RuntimeError(
-                "A fully paired model only has a joint latent representation."
+                "modality must be 'joint', 'expression', or 'accessibility'."
             )
-        if not self.fully_paired and modality != "joint":
-            if modality == "expression":
-                keys = {"z": "z_expr", "qz_m": "qzm_expr", "qz_v": "qzv_expr"}
-            elif modality == "accessibility":
-                keys = {"z": "z_acc", "qz_m": "qzm_acc", "qz_v": "qzv_acc"}
-            else:
-                raise RuntimeError(
-                    "modality must be 'joint', 'expression', or 'accessibility'."
-                )
 
         adata = self._validate_anndata(adata)
         scdl = self._make_data_loader(

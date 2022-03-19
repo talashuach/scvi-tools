@@ -334,7 +334,6 @@ class MULTIVAE(BaseModuleClass):
             weights = self.mod_weights[cell_idx, :]
         else:
             weights = self.mod_weights.unsqueeze(0).expand(len(cell_idx), -1)
-
         qz_m = self._mix_modalities((qzm_expr, qzm_acc), (mask_expr, mask_acc), weights)
         qz_v = self._mix_modalities(
             (qzv_expr, qzv_acc), (mask_expr, mask_acc), weights, lambda x: x ** 0.5
@@ -402,7 +401,6 @@ class MULTIVAE(BaseModuleClass):
 
         if transform_batch is not None:
             batch_index = torch.ones_like(batch_index) * transform_batch
-
         input_dict = dict(
             z=z,
             qz_m=qz_m,
