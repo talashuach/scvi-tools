@@ -268,9 +268,15 @@ class MULTIVAE(BaseModuleClass):
         ## modality alignment
         self.n_modalities = int(n_input_genes > 0) + int(n_input_regions > 0)
         if modality_weights == "equal":
-            self.mod_weights = torch.ones(self.n_modalities)
+            self.mod_weights = (
+                torch.ones(self.n_modalities).unsqueeze(0).expand(n_obs, -1)
+            )
         elif modality_weights == "universal":
-            self.mod_weights = torch.nn.Parameter(torch.ones(self.n_modalities))
+            self.mod_weights = (
+                torch.nn.Parameter(torch.ones(self.n_modalities))
+                .unsqueeze(0)
+                .expand(n_obs, -1)
+            )
         else:  # cell-specific weights
             self.mod_weights = torch.nn.Parameter(torch.ones(n_obs, self.n_modalities))
 
@@ -330,13 +336,14 @@ class MULTIVAE(BaseModuleClass):
         )
 
         ## mix representation
-        if self.modality_weights == "cell":
-            weights = self.mod_weights[cell_idx, :]
-        else:
-            weights = self.mod_weights.unsqueeze(0).expand(len(cell_idx), -1)
-        qz_m = self._mix_modalities((qzm_expr, qzm_acc), (mask_expr, mask_acc), weights)
+        qz_m = self._mix_modalities(
+            (qzm_expr, qzm_acc), (mask_expr, mask_acc), self.mod_weights[cell_idx, :]
+        )
         qz_v = self._mix_modalities(
-            (qzv_expr, qzv_acc), (mask_expr, mask_acc), weights, lambda x: x ** 0.5
+            (qzv_expr, qzv_acc),
+            (mask_expr, mask_acc),
+            self.mod_weights[cell_idx, :],
+            torch.sqrt,
         )
 
         # ReFormat Outputs
@@ -483,9 +490,7 @@ class MULTIVAE(BaseModuleClass):
         )
 
         # calling without weights makes this act like a masked sum
-        recon_loss = self._mix_modalities(
-            (rl_expression, rl_accessibility), (mask_expr, mask_acc),
-        )
+        recon_loss = (rl_expression * mask_expr) + (rl_accessibility * mask_acc)
 
         # Compute KLD between Z and N(0,I)
         qz_m = inference_outputs["qz_m"]
@@ -493,27 +498,12 @@ class MULTIVAE(BaseModuleClass):
         kl_div_z = kld(Normal(qz_m, torch.sqrt(qz_v)), Normal(0, 1),).sum(dim=1)
 
         # Compute KLD between distributions for paired data
-        qzm_expr = inference_outputs["qzm_expr"]
-        qzv_expr = inference_outputs["qzv_expr"]
-        qzm_acc = inference_outputs["qzm_acc"]
-        qzv_acc = inference_outputs["qzv_acc"]
-        kld_paired = kld(
-            Normal(qzm_expr, torch.sqrt(qzv_expr)), Normal(qzm_acc, torch.sqrt(qzv_acc))
-        ) + kld(
-            Normal(qzm_acc, torch.sqrt(qzv_acc)), Normal(qzm_expr, torch.sqrt(qzv_expr))
+        kld_paired = self._compute_mod_penalty(
+            (inference_outputs["qzm_expr"], inference_outputs["qzv_expr"]),
+            (inference_outputs["qzm_acc"], inference_outputs["qzv_acc"]),
+            mask_expr,
+            mask_acc,
         )
-        kld_paired = torch.where(
-            torch.logical_and(mask_acc, mask_expr),
-            kld_paired.T,
-            torch.zeros_like(kld_paired).T,
-        ).sum(dim=0)
-
-        # kld_paired = self._compute_mod_penalty(
-        #     (inference_outputs["qzm_expr"], inference_outputs["qzv_expr"]),
-        #     (inference_outputs["qzm_acc"], inference_outputs["qzv_acc"]),
-        #     mask_expr,
-        #     mask_acc,
-        # )
 
         # KL WARMUP
         kl_local_for_warmup = kl_div_z
@@ -549,9 +539,7 @@ class MULTIVAE(BaseModuleClass):
         )
 
     @auto_move_data
-    def _mix_modalities(
-        self, Xs, masks, weights=None, weight_transform: callable = None
-    ):
+    def _mix_modalities(self, Xs, masks, weights, weight_transform: callable = None):
         """ Compute the weighted mean of the Xs while masking values that originate
         from modalities that aren't measured.
 
@@ -575,14 +563,11 @@ class MULTIVAE(BaseModuleClass):
 
         # setting 0s to -inf ensures they'll be 0 after the softmax
         masks[masks == 0] = -float("inf")
-        if weights is not None:
-            weights = torch.softmax(masks * weights.to(self.device), 1)
-            # (batch_size x modalities) -> (batch_size x modalities x latent)
-            weights = weights.unsqueeze(-1).expand(-1, -1, Xs.shape[-1])
-            if weight_transform is not None:
-                weights = weight_transform(weights)
-        else:
-            weights = masks
+        weights = torch.softmax(masks * weights.to(self.device), 1)
+        # (batch_size x modalities) -> (batch_size x modalities x latent)
+        weights = weights.unsqueeze(-1).expand(-1, -1, Xs.shape[-1])
+        if weight_transform is not None:
+            weights = weight_transform(weights)
 
         # sum over modalities, so output is (batch_size x latent)
         return (weights * Xs).sum(1)
@@ -606,6 +591,8 @@ class MULTIVAE(BaseModuleClass):
             pair_penalty = kld(rv1, rv2) + kld(rv2, rv1)
         elif self.modality_penalty == "MMD":
             pair_penalty = torch.linalg.norm(mod_params1[0] - mod_params2[0], dim=1)
+        else:
+            raise ValueError("modality penalty not supported")
         return torch.where(
             torch.logical_and(mask1, mask2),
             pair_penalty.T,
