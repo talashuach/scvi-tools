@@ -285,7 +285,7 @@ class MULTIVAE(BaseModuleClass):
         batch_index = tensors[REGISTRY_KEYS.BATCH_KEY]
         cont_covs = tensors.get(REGISTRY_KEYS.CONT_COVS_KEY)
         cat_covs = tensors.get(REGISTRY_KEYS.CAT_COVS_KEY)
-        cell_idx = tensors.get(REGISTRY_KEYS.INDICES_KEY)
+        cell_idx = tensors.get(REGISTRY_KEYS.INDICES_KEY).long().ravel()
         input_dict = dict(
             x=x,
             batch_index=batch_index,
