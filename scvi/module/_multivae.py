@@ -268,9 +268,8 @@ class MULTIVAE(BaseModuleClass):
         ## modality alignment
         self.n_modalities = int(n_input_genes > 0) + int(n_input_regions > 0)
         if modality_weights == "equal":
-            self.mod_weights = (
-                torch.ones(self.n_modalities).unsqueeze(0).expand(n_obs, -1)
-            )
+            mod_weights = torch.ones(self.n_modalities).unsqueeze(0).expand(n_obs, -1)
+            self.register_buffer("mod_weights", mod_weights)
         elif modality_weights == "universal":
             self.mod_weights = (
                 torch.nn.Parameter(torch.ones(self.n_modalities))
@@ -371,7 +370,7 @@ class MULTIVAE(BaseModuleClass):
             )
 
         ## Sample from the mixed representation
-        untran_z = Normal(qz_m, qz_v.sqrt()).sample()
+        untran_z = Normal(qz_m, qz_v.sqrt()).rsample()
         z = self.z_encoder_accessibility.z_transformation(untran_z)
 
         outputs = dict(
@@ -563,7 +562,7 @@ class MULTIVAE(BaseModuleClass):
 
         # setting 0s to -inf ensures they'll be 0 after the softmax
         masks[masks == 0] = -float("inf")
-        weights = torch.softmax(masks * weights.to(self.device), 1)
+        weights = torch.softmax(masks * weights, 1)
         # (batch_size x modalities) -> (batch_size x modalities x latent)
         weights = weights.unsqueeze(-1).expand(-1, -1, Xs.shape[-1])
         if weight_transform is not None:
