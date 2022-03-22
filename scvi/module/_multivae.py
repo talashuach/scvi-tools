@@ -268,14 +268,10 @@ class MULTIVAE(BaseModuleClass):
         ## modality alignment
         self.n_modalities = int(n_input_genes > 0) + int(n_input_regions > 0)
         if modality_weights == "equal":
-            mod_weights = torch.ones(self.n_modalities).unsqueeze(0).expand(n_obs, -1)
+            mod_weights = torch.ones(self.n_modalities)
             self.register_buffer("mod_weights", mod_weights)
         elif modality_weights == "universal":
-            self.mod_weights = (
-                torch.nn.Parameter(torch.ones(self.n_modalities))
-                .unsqueeze(0)
-                .expand(n_obs, -1)
-            )
+            self.mod_weights = torch.nn.Parameter(torch.ones(self.n_modalities))
         else:  # cell-specific weights
             self.mod_weights = torch.nn.Parameter(torch.ones(n_obs, self.n_modalities))
 
@@ -334,15 +330,16 @@ class MULTIVAE(BaseModuleClass):
             encoder_input_accessibility, batch_index, *categorical_input
         )
 
+        print(self.mod_weights)
+        if self.modality_weights == "cell":
+            weights = self.mod_weights[cell_idx, :]
+        else:
+            weights = self.mod_weights.unsqueeze(0).expand(len(cell_idx), -1)
+
         ## mix representation
-        qz_m = self._mix_modalities(
-            (qzm_expr, qzm_acc), (mask_expr, mask_acc), self.mod_weights[cell_idx, :]
-        )
+        qz_m = self._mix_modalities((qzm_expr, qzm_acc), (mask_expr, mask_acc), weights)
         qz_v = self._mix_modalities(
-            (qzv_expr, qzv_acc),
-            (mask_expr, mask_acc),
-            self.mod_weights[cell_idx, :],
-            torch.sqrt,
+            (qzv_expr, qzv_acc), (mask_expr, mask_acc), weights, torch.sqrt,
         )
 
         # ReFormat Outputs
