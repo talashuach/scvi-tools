@@ -1266,40 +1266,51 @@ def test_destvi(save_path):
 
 def test_multivi():
     data = synthetic_iid()
-    MULTIVI.setup_anndata(
-        data,
-        batch_key="batch",
-    )
-    vae = MULTIVI(
-        data,
-        n_genes=50,
-        n_regions=50,
-    )
-    vae.train(1, save_best=False)
-    vae.train(1, adversarial_mixing=False)
-    vae.train(3)
-    vae.get_elbo(indices=vae.validation_indices)
-    vae.get_accessibility_estimates()
-    vae.get_accessibility_estimates(normalize_cells=True)
-    vae.get_accessibility_estimates(normalize_regions=True)
-    vae.get_normalized_expression()
-    vae.get_library_size_factors()
-    vae.get_region_factors()
-    vae.get_reconstruction_error(indices=vae.validation_indices)
-    vae.get_latent_representation()
-    vae.differential_accessibility(groupby="labels", group1="label_1")
-    vae.differential_expression(groupby="labels", group1="label_1")
-
-    # Test with size factor
-    data = synthetic_iid()
     data.obs["size_factor"] = np.random.randint(1, 5, size=(data.shape[0],))
-    MULTIVI.setup_anndata(data, batch_key="batch", size_factor_key="size_factor")
-    vae = MULTIVI(
-        data,
-        n_genes=50,
-        n_regions=50,
+    n_genes = 50
+    n_regions = 50
+    # Introduce additional unpaired entries.
+    unpaired_draws = np.random.choice(
+        3, size=data.n_obs, replace=True, p=[0.5, 0.25, 0.25]
     )
-    vae.train(3)
+    data.X[unpaired_draws == 1, :n_genes] = 0  # Unpaired regions
+    data.X[unpaired_draws == 2, n_genes:] = 0  # Unpaired genes
+    print(data.X[:20, :50].sum(axis=1))
+    for modality_weights in ["equal", "universal", "cell"]:
+        MULTIVI.setup_anndata(
+            data,
+            batch_key="batch",
+        )
+        vae = MULTIVI(
+            data,
+            n_genes=n_genes,
+            n_regions=n_regions,
+            modality_weights=modality_weights,
+        )
+        vae.train(1, save_best=False)
+        vae.train(1, adversarial_mixing=False)
+        vae.train(3)
+        vae.get_elbo(indices=vae.validation_indices)
+        vae.get_accessibility_estimates()
+        vae.get_accessibility_estimates(normalize_cells=True)
+        vae.get_accessibility_estimates(normalize_regions=True)
+        vae.get_normalized_expression()
+        vae.get_library_size_factors()
+        vae.get_region_factors()
+        vae.get_reconstruction_error(indices=vae.validation_indices)
+        vae.get_latent_representation()
+        vae.differential_accessibility(groupby="labels", group1="label_1")
+        vae.differential_expression(groupby="labels", group1="label_1")
+
+        # Test with size factor
+        MULTIVI.setup_anndata(data, batch_key="batch", size_factor_key="size_factor")
+        vae = MULTIVI(
+            data,
+            n_genes=n_genes,
+            n_regions=n_regions,
+            modality_weights=modality_weights,
+        )
+        vae.train(3)
 
 
 def test_early_stopping():
